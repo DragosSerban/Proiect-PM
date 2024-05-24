@@ -15,6 +15,9 @@ const int irSensorPin2 = 7; // second IR sensor pin
 const int ultrasonicEchoPin = 12;  // echo pin
 const int ultrasonicTrigPin = 13; // trigger pin
 
+// led pin
+const int ledPin = 11; // led pin
+
 // servo pins
 const int servoBarrierPin = 5; // pin for the servomotor used as barrier
 const int servoElevatorPin = 8; // pin for the servomotor used as elevator
@@ -30,7 +33,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // variables used for working with the ultrasonic sensor data
 long duration;
-int distance;
+int distance = 1000;
 
 // Car count variable
 volatile int carCount = 0;
@@ -44,6 +47,8 @@ volatile bool button2Pressed = false;
 void setup() {
   // initialize serial communication
   Serial.begin(9600);
+
+  pinMode(ledPin, OUTPUT);
 
   // set the button pins as input with internal pull-up resistors
   pinMode(buttonPin1, INPUT_PULLUP);
@@ -130,54 +135,83 @@ void closeBarrier() {
   servoBarrier.write(0);
 }
 
+// function used for increasing LED intensity
+void increaseLedIntensity() {
+  for (int i = 0; i < 256; i++) {
+    analogWrite(ledPin, i);
+    delay(5);
+  }
+}
+
+// function used for decreasing LED intensity
+void decreaseLedIntensity() {
+  for (int i = 255; i >= 0; i--) {
+    analogWrite(ledPin, i);
+    delay(5);
+  }
+}
+
 // Function used for moving the elevator up
 void moveElevatorUp()
 {
   if (distance > 3)
+  {
     servoElevator.write(180); // start the elevator if it isn't already at the second floor
 
-  for (int i = 0; i < 10; i++) {
-    // get distance from the lift to the ultrasonic sensor; if it's lower than 3, stop
-    distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
+    for (int i = 0; i < 10; i++) {
+      // get distance from the lift to the ultrasonic sensor; if it's lower than 3, stop
+      distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
 
-    if (distance <= 3) {
-      servoElevator.write(90); // stop the elevator if we arrived at the second floor
-      Serial.println("We arrived at the second floor!");
-      break;
+      if (distance <= 3)
+      {
+        servoElevator.write(90); // stop the elevator if we arrived at the second floor
+        Serial.println("We arrived at the second floor!");
+        break;
+      }
+
+      lcd.setCursor(1, 1);
+      lcd.print("Height: ");
+      lcd.print(max(12 - distance, 0));
+      lcd.print(" cm");
+      delay(325);
     }
 
-    lcd.setCursor(1, 1);
-    lcd.print("Height: ");
-    lcd.print(distance);
-    lcd.print(" cm");
-    delay(325);
+    // stop the elevator after the allocated time passed or the elevator arrived at the second floor
+    servoElevator.write(90);
+    
+    decreaseLedIntensity();
   }
-  servoElevator.write(90); // stop the elevator after the time passed or we arrived
 }
 
 // Function used for moving the elevator down
 void moveElevatorDown()
 {
-  if (distance < 12)
+  if (distance < 10) {
     servoElevator.write(0); // start the elevator if it isn't already at the first floor
     
-  for (int i = 0; i < 10; i++) {
-    // get distance from the lift to the ultrasonic sensor; if it's higher than 3, stop
-    distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
+    for (int i = 0; i < 10; i++) {
+      // get distance from the lift to the ultrasonic sensor; if it's higher than 3, stop
+      distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
 
-    if (distance >= 12) {
-      servoElevator.write(90); // stop the elevator if we arrived at the first floor
-      Serial.println("We arrived at the first floor!");
-      break;
+      if (distance >= 13.5) {
+        servoElevator.write(90); // stop the elevator if we arrived at the first floor
+        Serial.println("We arrived at the first floor!");
+        break;
+      }
+
+      lcd.setCursor(1, 1);
+      lcd.print("Height: ");
+      lcd.print(max(12 - distance, 0));
+      lcd.print(" cm");
+      delay(275);
     }
 
-    lcd.setCursor(1, 1);
-    lcd.print("Height: ");
-    lcd.print(distance);
-    lcd.print(" cm");
-    delay(325);
+    // stop the elevator after the allocated time passed or the elevator arrived at the first floor
+    servoElevator.write(90);
+    distance = 14;
+
+    increaseLedIntensity();
   }
-  servoElevator.write(90); // stop the elevator after the time passed or we arrived
 }
 
 void loop()
@@ -189,19 +223,19 @@ void loop()
       Serial.println(carCount);
 
       closeBarrier();
-      carDetected = false;  // Reset the flag
+      carDetected = false;  // reset the flag for the detected car
       lcd.setCursor(15, 0);
       lcd.print(carCount);
   }
 
   if (button1Pressed) {
-    button1Pressed = false; // reset the flag
+    button1Pressed = false; // reset the flag for the first button (go up)
     Serial.println("We're going to the second floor!");
     moveElevatorUp();
   }
 
   if (button2Pressed) {
-    button2Pressed = false; // reset the flag
+    button2Pressed = false; // reset the flag for the second button (go down)
     Serial.println("We're going to the first floor!");
     moveElevatorDown();
   }
