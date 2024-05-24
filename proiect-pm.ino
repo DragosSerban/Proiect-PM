@@ -1,49 +1,69 @@
-#include <Servo.h> 
+#include <Servo.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <PinChangeInterrupt.h>
-#include <NewPing.h>
-#include <TimerOne.h>
 
+// button pins
 const int buttonPin1 = 2; // pin connected to button 1
 const int buttonPin2 = 3; // pin connected to button 2
 
-volatile bool button1Pressed = false;
-volatile bool button2Pressed = false;
+// IR sensor pins
+const int irSensorPin1 = 6; // first IR sensor pin
+const int irSensorPin2 = 7; // second IR sensor pin
 
-int ultrasonicEchoPin1 = 6; // first ultrasonic sensor echo pin
-int ultrasonicTrigPin1 = 7; // first ultrasonic sensor trig pin
+// ultrasonic sensor pins
+const int ultrasonicEchoPin = 12;  // echo pin
+const int ultrasonicTrigPin = 13; // trigger pin
 
-int ultrasonicEchoPin2 = 9; // second ultrasonic sensor echo pin
-int ultrasonicTrigPin2 = 10; // second ultrasonic sensor trig pin
-
-int servoBarrierPin = 5; // pin for the servomotor used as barrier
-int servoElevatorPin = 8; // pin for the servomotor used as elevator
+// servo pins
+const int servoBarrierPin = 5; // pin for the servomotor used as barrier
+const int servoElevatorPin = 8; // pin for the servomotor used as elevator
 
 // create a servo object for the barrier
 Servo servoBarrier;
+
 // create a servo object for the elevator
 Servo servoElevator;
 
-// set the LCD address to 0x27 (we have a 16 chars and 2 line display)
+// Create LCD object
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-bool carDetectedNearBarrier = false;
+// variables used for working with the ultrasonic sensor data
+long duration;
+int distance;
 
-volatile unsigned int distance = 0;
-volatile bool newPing = false;
+// Car count variable
+volatile int carCount = 0;
+volatile bool carDetected = false;
+volatile unsigned long lastMillis = 0;
+
+// Button press flags
+volatile bool button1Pressed = false;
+volatile bool button2Pressed = false;
 
 void setup() {
-  // initialize the serial communication
+  // initialize serial communication
   Serial.begin(9600);
 
-  // set button pins as input with internal pull-up resistors
+  // set the button pins as input with internal pull-up resistors
   pinMode(buttonPin1, INPUT_PULLUP);
   pinMode(buttonPin2, INPUT_PULLUP);
 
   // attach interrupts to the button pins
   attachInterrupt(digitalPinToInterrupt(buttonPin1), button1ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(buttonPin2), button2ISR, FALLING);
+
+  // set the IR sensor pins as input
+  pinMode(irSensorPin1, INPUT);
+  pinMode(irSensorPin2, INPUT);
+
+  // attach interrupts to the IR sensor pins
+  attachPCINT(digitalPinToPCINT(irSensorPin1), irSensorsISR, CHANGE);
+  attachPCINT(digitalPinToPCINT(irSensorPin2), irSensorsISR, CHANGE);
+
+  // set the ultrasonic sensor pins (echo as input and trigger as output)
+  pinMode(ultrasonicEchoPin, INPUT);
+  pinMode(ultrasonicTrigPin, OUTPUT);
 
   // set the barrier servo angle to 0 degrees
   servoBarrier.attach(servoBarrierPin);
@@ -59,15 +79,7 @@ void setup() {
   // turn on the blacklight and print current number of cars which entered parking space
   lcd.backlight();
   lcd.setCursor(1, 0);
-  lcd.print("Number of cars:");
-  lcd.setCursor(1, 1);
-  lcd.print("0");
-
-  // set ultrasonic sensor pins
-  pinMode(ultrasonicTrigPin1, OUTPUT);
-  pinMode(ultrasonicEchoPin1, INPUT);
-  pinMode(ultrasonicTrigPin2, OUTPUT);
-  pinMode(ultrasonicEchoPin2, INPUT);
+  lcd.print("Cars entered: 0");
 }
 
 // Interrupt Service Routine (ISR) for button 1
@@ -78,6 +90,16 @@ void button1ISR() {
 // Interrupt Service Routine (ISR) for button 2
 void button2ISR() {
   button2Pressed = true;
+}
+
+// Interrupt Service Routine (ISR) for the 2 IR sensors used
+void irSensorsISR() {
+  if (digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) { 
+    carDetected = true;
+    lastMillis = millis();
+  } else {
+    openBarrier();
+  }
 }
 
 // function used for measuring distance using an ultrasonic sensor
@@ -108,49 +130,79 @@ void closeBarrier() {
   servoBarrier.write(0);
 }
 
-// function used for moving the elevator up
-void moveElevatorUp() {
-  servoElevator.write(180); // start the elevator
-  delay(3000); // move it for 3 seconds
-  servoElevator.write(90); // stop the elevator
-}
+// Function used for moving the elevator up
+void moveElevatorUp()
+{
+  if (distance > 3)
+    servoElevator.write(180); // start the elevator if it isn't already at the second floor
 
-// function used for moving the elevator down
-void moveElevatorDown() {
-  servoElevator.write(0); // start the elevator
-  delay(3000); // move it for 3 seconds
-  servoElevator.write(90); // stop the elevator
-}
+  for (int i = 0; i < 10; i++) {
+    // get distance from the lift to the ultrasonic sensor; if it's lower than 3, stop
+    distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
 
-void loop() {
-  // measure the distance using the first ultrasonic sensor
-  unsigned int distance1 = measureDistance(ultrasonicTrigPin1, ultrasonicEchoPin1);
-  // measure the distance using the second ultrasonic sensor
-  unsigned int distance2 = measureDistance(ultrasonicTrigPin2, ultrasonicEchoPin2);
+    if (distance <= 3) {
+      servoElevator.write(90); // stop the elevator if we arrived at the second floor
+      Serial.println("We arrived at the second floor!");
+      break;
+    }
 
-  // check if there is any car in proximity to the barrier
-  if (distance1 < 10 || distance2 < 10)
-  {
-    openBarrier();
-    carDetectedNearBarrier = true;
-    lcd.clear();
-    lcd.setCursor(1, 0);
-    lcd.print("Car detected: ");
     lcd.setCursor(1, 1);
-    lcd.print(min(distance1, distance2));
+    lcd.print("Height: ");
+    lcd.print(distance);
+    lcd.print(" cm");
+    delay(325);
   }
-  else if (carDetectedNearBarrier)
-  {
-    delay(1000);
-    closeBarrier();
-    carDetectedNearBarrier = false;
+  servoElevator.write(90); // stop the elevator after the time passed or we arrived
+}
+
+// Function used for moving the elevator down
+void moveElevatorDown()
+{
+  if (distance < 12)
+    servoElevator.write(0); // start the elevator if it isn't already at the first floor
+    
+  for (int i = 0; i < 10; i++) {
+    // get distance from the lift to the ultrasonic sensor; if it's higher than 3, stop
+    distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
+
+    if (distance >= 12) {
+      servoElevator.write(90); // stop the elevator if we arrived at the first floor
+      Serial.println("We arrived at the first floor!");
+      break;
+    }
+
+    lcd.setCursor(1, 1);
+    lcd.print("Height: ");
+    lcd.print(distance);
+    lcd.print(" cm");
+    delay(325);
+  }
+  servoElevator.write(90); // stop the elevator after the time passed or we arrived
+}
+
+void loop()
+{
+  // Check if a second has passed since the last car entered the parking space
+  if (carDetected && millis() - lastMillis >= 1000
+    && digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) {
+      carCount++;
+      Serial.println(carCount);
+
+      closeBarrier();
+      carDetected = false;  // Reset the flag
+      lcd.setCursor(15, 0);
+      lcd.print(carCount);
   }
 
-  delay(100);
-
-  if (button1Pressed)
-  {
-    button1Pressed = false;
+  if (button1Pressed) {
+    button1Pressed = false; // reset the flag
+    Serial.println("We're going to the second floor!");
     moveElevatorUp();
+  }
+
+  if (button2Pressed) {
+    button2Pressed = false; // reset the flag
+    Serial.println("We're going to the first floor!");
+    moveElevatorDown();
   }
 }
