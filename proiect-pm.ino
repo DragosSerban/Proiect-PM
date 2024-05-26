@@ -48,7 +48,9 @@ void setup() {
   // initialize serial communication
   Serial.begin(9600);
 
+  // attach led pin as output and turn it on
   pinMode(ledPin, OUTPUT);
+  analogWrite(ledPin, 255);
 
   // set the button pins as input with internal pull-up resistors
   pinMode(buttonPin1, INPUT_PULLUP);
@@ -83,8 +85,17 @@ void setup() {
 
   // turn on the blacklight and print current number of cars which entered parking space
   lcd.backlight();
-  lcd.setCursor(1, 0);
+  lcd.setCursor(0, 0);
   lcd.print("Cars entered: 0");
+
+  // measure the distance between ultrasonic sensor and elevator cabin
+  distance = measureDistance(ultrasonicTrigPin, ultrasonicEchoPin);
+
+  // calculate the height and print it on the display
+  lcd.setCursor(0, 1);
+  lcd.print("Height: ");
+  lcd.print(max(12 - distance, 0));
+  lcd.print(" cm");
 }
 
 // Interrupt Service Routine (ISR) for button 1
@@ -169,8 +180,7 @@ void moveElevatorUp()
         break;
       }
 
-      lcd.setCursor(1, 1);
-      lcd.print("Height: ");
+      lcd.setCursor(8, 1);
       lcd.print(max(12 - distance, 0));
       lcd.print(" cm");
       delay(325);
@@ -199,8 +209,7 @@ void moveElevatorDown()
         break;
       }
 
-      lcd.setCursor(1, 1);
-      lcd.print("Height: ");
+      lcd.setCursor(8, 1);
       lcd.print(max(12 - distance, 0));
       lcd.print(" cm");
       delay(275);
@@ -224,7 +233,8 @@ void loop()
 
       closeBarrier();
       carDetected = false;  // reset the flag for the detected car
-      lcd.setCursor(15, 0);
+
+      lcd.setCursor(14, 0);
       lcd.print(carCount);
   }
 
