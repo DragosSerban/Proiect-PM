@@ -116,8 +116,10 @@ void button2ISR() {
 void irSensor1ISR() {
   if (digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) {
     if (carLeaves) {
-      carCount--;
-      Serial.println(carCount);
+      if (carCount > 0) {
+        carCount--;
+        Serial.println(carCount);
+      }
 
       carEnters = false;
     } else {
@@ -267,7 +269,7 @@ void loop()
       carLeaves = false;
 
       lcd.setCursor(14, 0);
-      lcd.print(max(carCount, 0));
+      lcd.print(carCount);
   }
 
   if (button1Pressed) {
