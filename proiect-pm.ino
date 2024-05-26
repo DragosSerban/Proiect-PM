@@ -32,12 +32,16 @@ Servo servoElevator;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // variables used for working with the ultrasonic sensor data
-long duration;
-int distance = 1000;
+volatile long duration;
+volatile int distance = 1000;
 
 // Car count variable
 volatile int carCount = 0;
+
 volatile bool carDetected = false;
+volatile bool carEnters = false;
+volatile bool carLeaves = false;
+
 volatile unsigned long lastMillis = 0;
 
 // Button press flags
@@ -65,8 +69,8 @@ void setup() {
   pinMode(irSensorPin2, INPUT);
 
   // attach interrupts to the IR sensor pins
-  attachPCINT(digitalPinToPCINT(irSensorPin1), irSensorsISR, CHANGE);
-  attachPCINT(digitalPinToPCINT(irSensorPin2), irSensorsISR, CHANGE);
+  attachPCINT(digitalPinToPCINT(irSensorPin1), irSensor1ISR, CHANGE);
+  attachPCINT(digitalPinToPCINT(irSensorPin2), irSensor2ISR, CHANGE);
 
   // set the ultrasonic sensor pins (echo as input and trigger as output)
   pinMode(ultrasonicEchoPin, INPUT);
@@ -108,9 +112,38 @@ void button2ISR() {
   button2Pressed = true;
 }
 
-// Interrupt Service Routine (ISR) for the 2 IR sensors used
-void irSensorsISR() {
-  if (digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) { 
+// Interrupt Service Routine (ISR) for the first IR sensor used
+void irSensor1ISR() {
+  if (digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) {
+    if (carLeaves) {
+      carCount--;
+      Serial.println(carCount);
+
+      carEnters = false;
+    } else {
+      carEnters = true;
+    }
+
+    carDetected = true;
+    lastMillis = millis();
+  } else {
+    if (carCount < 12)
+      openBarrier();
+  }
+}
+
+// Interrupt Service Routine (ISR) for the second IR sensor used
+void irSensor2ISR() {
+  if (digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) {
+    if (carEnters) {
+      carCount++;
+      Serial.println(carCount);
+
+      carEnters = false;
+    } else {
+      carLeaves = true;
+    }
+
     carDetected = true;
     lastMillis = millis();
   } else {
@@ -226,16 +259,15 @@ void moveElevatorDown()
 void loop()
 {
   // Check if a second has passed since the last car entered the parking space
-  if (carDetected && millis() - lastMillis >= 1000
+  if (carDetected && millis() - lastMillis >= 2000
     && digitalRead(irSensorPin1) == HIGH && digitalRead(irSensorPin2) == HIGH) {
-      carCount++;
-      Serial.println(carCount);
-
       closeBarrier();
-      carDetected = false;  // reset the flag for the detected car
+      carDetected = false; // reset the flag for the detected car
+      carEnters = false;
+      carLeaves = false;
 
       lcd.setCursor(14, 0);
-      lcd.print(carCount);
+      lcd.print(max(carCount, 0));
   }
 
   if (button1Pressed) {
